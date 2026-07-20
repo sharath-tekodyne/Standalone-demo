@@ -26,18 +26,18 @@ class PlatformAxis:
         self.log = log if callable(log) else (lambda message: None)
 
     def _main_steps(self):
-        """Effective HOME->MAIN step count.
+        """HOME->MAIN distance as a POSITIVE magnitude of steps.
 
-        Prefers the value calibrated at runtime and persisted in state
-        (SM1 MARK MAIN, e.g. from the Step-by-Step GUI), and falls back to the
-        protocol.SM1_MAIN_STEPS constant. Returns None if neither is set (both
-        None/0), which the demo treats as "not calibrated yet".
+        Prefers the runtime-calibrated value (SM1 MARK MAIN / SM1 SET MAINSTEPS)
+        and falls back to protocol.SM1_MAIN_STEPS. abs() so a stray sign can't
+        flip the direction - MAIN direction is applied in target_steps(). None
+        if neither is set (treated as "not calibrated yet").
         """
         saved = self.state.get("sm1_main_steps")
         if saved:
-            return saved
+            return abs(saved)
         if protocol.SM1_MAIN_STEPS:
-            return protocol.SM1_MAIN_STEPS
+            return abs(protocol.SM1_MAIN_STEPS)
         return None
 
     def is_calibrated(self):
@@ -115,7 +115,8 @@ class PlatformAxis:
                 raise RuntimeError(
                     "MAIN cannot be HOME (0) - jog SM1 away from HOME before saving MAIN"
                 )
-            self.state["sm1_main_steps"] = pos
+            # store the magnitude; MAIN's ACW direction is applied in target_steps()
+            self.state["sm1_main_steps"] = abs(pos)
             self.persist()
         else:
             raise ValueError("SM1 MARK only supports HOME or MAIN")
@@ -130,7 +131,9 @@ class PlatformAxis:
                     "MAIN is not calibrated - jog to MAIN and MARK MAIN, or set "
                     "protocol.SM1_MAIN_STEPS (calibrate_main_steps.py)"
                 )
-            return steps
+            # MAIN is ACW of HOME, and ACW is the negative direction (HOME=0 at
+            # the CW switch), so the absolute target is negative.
+            return -steps
         raise ValueError("unknown position name: {}".format(name))
 
     def _speed_us(self):
@@ -143,38 +146,40 @@ class PlatformAxis:
         return max(100, min(self.motor.SPEED_PRESETS_US[speed], profile["run_limit_us"]))
 
     def move_to_absolute(self, target, should_pause=None):
-        """Move toward an absolute step count in small chunks.
+        """Move toward an absolute step count, pulsing continuously for smooth
+        motion (the same way homing does).
 
         Returns True once the target is reached, or False if should_pause()
-        returned True partway through (the caller should keep its current
-        phase/intent so a later retry continues from here).
+        returned True partway through (caller keeps its phase so a retry
+        continues from here).
+
+        Why not motor.move_steps() per chunk: that re-enables the driver every
+        chunk (a 25 ms sleep) and we used to flash-persist every chunk too -
+        both stalled the motor periodically and made the motion jittery. Here
+        we enable once, pulse straight through, only check should_pause between
+        chunks, and only persist on pause / completion.
         """
         speed_us = self._speed_us()
         chunk = protocol.DEFAULT_CHUNK_STEPS
+        self.motor.enable()
 
         while True:
             current = self.state["sm1_position_steps"]
             remaining = target - current
             if remaining == 0:
+                self.persist()
                 return True
 
             direction = self.motor.CW if remaining > 0 else self.motor.ACW
+            self.motor.set_direction(direction)
             step_count = min(chunk, abs(remaining))
-            completed = self.motor.move_steps(direction, step_count, speed_us)
-            actual = completed if direction == self.motor.CW else -completed
-            self.state["sm1_position_steps"] += actual
-            self.persist()
-
-            self.log(
-                "SM1 chunk dir={} requested={} completed={} position={} target={}".format(
-                    direction, step_count, completed, self.state["sm1_position_steps"], target
-                )
-            )
-
-            if completed != step_count:
-                raise RuntimeError("SM1 stopped early: requested {} got {}".format(step_count, completed))
+            delta = 1 if direction == self.motor.CW else -1
+            for _ in range(step_count):
+                self.motor.pulse(speed_us)
+                self.state["sm1_position_steps"] += delta
 
             if should_pause is not None and should_pause():
+                self.persist()
                 return False
 
     def move_to(self, name, should_pause=None):

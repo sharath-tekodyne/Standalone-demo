@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1040" viewBox="0 0 1280 1040" font-family="Segoe UI, Arial, sans-serif">
+  <rect x="0" y="0" width="1280" height="1040" fill="#f4f5f7"/>
+  <text x="640" y="34" font-size="24" font-weight="bold" text-anchor="middle" fill="#111">Single-Board Wiring Layout — Pico Jog/Gripper Demo</text>
+  <text x="640" y="56" font-size="13" text-anchor="middle" fill="#555">Wire to the FIRMWARE pins (protocol.py). SM1 left, SM2 right, Pico centre. Colours = function. Red = 24 V ONLY.</text>
+
+  <!-- ===================== POWER FLOW ===================== -->
+  <rect x="20" y="72" width="1240" height="150" rx="8" fill="#ffffff" stroke="#ccc"/>
+  <text x="34" y="92" font-size="15" font-weight="bold" fill="#111">POWER  (solder + test this FIRST — Test Gate 1)</text>
+
+  <rect x="34" y="104" width="120" height="46" rx="5" fill="#fff" stroke="#333"/>
+  <text x="94" y="125" font-size="13" text-anchor="middle" fill="#111">24 V JACK</text>
+  <text x="94" y="141" font-size="11" text-anchor="middle" fill="#777">+ red  / − black</text>
+
+  <line x1="154" y1="127" x2="196" y2="127" stroke="#d32f2f" stroke-width="4"/>
+  <rect x="196" y="104" width="130" height="46" rx="5" fill="#fff" stroke="#333"/>
+  <text x="261" y="122" font-size="13" text-anchor="middle" fill="#111">"24 V supply"</text>
+  <text x="261" y="138" font-size="12" text-anchor="middle" fill="#111">main switch</text>
+
+  <line x1="326" y1="127" x2="368" y2="115" stroke="#d32f2f" stroke-width="4"/>
+  <line x1="326" y1="127" x2="368" y2="180" stroke="#d32f2f" stroke-width="4"/>
+
+  <rect x="368" y="92" width="180" height="46" rx="5" fill="#fff" stroke="#333"/>
+  <text x="458" y="110" font-size="12.5" text-anchor="middle" fill="#111">BUCK  24 V → 5 V</text>
+  <text x="458" y="126" font-size="11" text-anchor="middle" fill="#777">set to 5 V before use</text>
+  <line x1="548" y1="115" x2="600" y2="115" stroke="#d32f2f" stroke-width="4"/>
+  <text x="606" y="112" font-size="12" fill="#111">→ Pico VSYS (pin 39)</text>
+  <text x="606" y="128" font-size="11" fill="#777">buck − → ground bus</text>
+
+  <rect x="368" y="158" width="180" height="46" rx="5" fill="#fff" stroke="#333"/>
+  <text x="458" y="181" font-size="12.5" text-anchor="middle" fill="#111">"drivers" switch</text>
+  <text x="458" y="196" font-size="11" text-anchor="middle" fill="#777">one switch → both VMOT</text>
+  <line x1="548" y1="181" x2="600" y2="181" stroke="#d32f2f" stroke-width="4"/>
+  <rect x="600" y="158" width="220" height="46" rx="5" fill="#fff" stroke="#333"/>
+  <text x="710" y="176" font-size="12" text-anchor="middle" fill="#111">VMOT rail = 24 V</text>
+  <text x="710" y="192" font-size="11" text-anchor="middle" fill="#777">→ SM1 VMOT + SM2 VMOT, 220 µF cap each</text>
+
+  <rect x="856" y="104" width="384" height="100" rx="6" fill="#fff8e1" stroke="#e0c060"/>
+  <text x="872" y="124" font-size="13" font-weight="bold" fill="#8a6d00">Test Gate 1 (no Pico/drivers inserted)</text>
+  <text x="872" y="146" font-size="12" fill="#333">• buck OUT = 5 V &#160;&#160; • each VMOT = 24 V</text>
+  <text x="872" y="166" font-size="12" fill="#333">• NO short VMOT↔GND or 5V↔GND</text>
+  <text x="872" y="190" font-size="12" fill="#b00020">Do not proceed until clean.</text>
+
+  <!-- ===================== PICO CENTRE ===================== -->
+  <rect x="470" y="250" width="340" height="470" rx="10" fill="#ffffff" stroke="#333" stroke-width="2"/>
+  <text x="640" y="276" font-size="16" font-weight="bold" text-anchor="middle" fill="#111">Raspberry Pi Pico 2 W</text>
+  <text x="640" y="294" font-size="11" text-anchor="middle" fill="#777">(socket on female headers — pluggable)</text>
+
+  <!-- Pico pin rows: left cluster = SM2 (GP0-5) + power; right cluster = SM1 + sensors -->
+  <text x="486" y="322" font-size="12.5" font-weight="bold" fill="#444">left-side pins → SM2 &amp; power</text>
+  <g font-size="12.5" fill="#111">
+    <rect x="486" y="332" width="14" height="14" fill="#388e3c"/><text x="508" y="344">pin 1 · GP0 → SM2 UART TX (1 kΩ)</text>
+    <rect x="486" y="352" width="14" height="14" fill="#388e3c"/><text x="508" y="364">pin 2 · GP1 → SM2 UART RX</text>
+    <rect x="486" y="372" width="14" height="14" fill="#fbc02d"/><text x="508" y="384">pin 4 · GP2 → SM2 STEP</text>
+    <rect x="486" y="392" width="14" height="14" fill="#f57c00"/><text x="508" y="404">pin 5 · GP3 → SM2 DIR</text>
+    <rect x="486" y="412" width="14" height="14" fill="#795548"/><text x="508" y="424">pin 6 · GP4 → SM2 EN</text>
+    <rect x="486" y="432" width="14" height="14" fill="#757575"/><text x="508" y="444">pin 7 · GP5 → SM2 DIAG</text>
+    <rect x="486" y="452" width="14" height="14" fill="#ffffff" stroke="#999"/><text x="508" y="464">pin 36 · 3V3 → VIO (both drivers)</text>
+    <rect x="486" y="472" width="14" height="14" fill="#000000"/><text x="508" y="484">pin 38 · GND → ground bus</text>
+    <rect x="486" y="492" width="14" height="14" fill="#d32f2f"/><text x="508" y="504">pin 39 · VSYS ← buck 5 V</text>
+  </g>
+
+  <line x1="486" y1="524" x2="794" y2="524" stroke="#eee"/>
+  <text x="486" y="548" font-size="12.5" font-weight="bold" fill="#444">right-side pins → SM1 &amp; sensors</text>
+  <g font-size="12.5" fill="#111">
+    <rect x="486" y="558" width="14" height="14" fill="#795548"/><text x="508" y="570">pin 24 · GP18 → SM1 EN</text>
+    <rect x="486" y="578" width="14" height="14" fill="#fbc02d"/><text x="508" y="590">pin 25 · GP19 → SM1 STEP</text>
+    <rect x="486" y="598" width="14" height="14" fill="#f57c00"/><text x="508" y="610">pin 26 · GP20 → SM1 DIR</text>
+    <rect x="486" y="618" width="14" height="14" fill="#1976d2"/><text x="508" y="630">pin 27 · GP21 → LIMIT SWITCH</text>
+    <rect x="486" y="638" width="14" height="14" fill="#7b1fa2"/><text x="508" y="650">pin 29 · GP22 → PUSH BUTTON</text>
+  </g>
+  <text x="486" y="686" font-size="11" fill="#777">GP0–GP5 sit top-left of the Pico; GP18–GP22 are lower-right.</text>
+  <text x="486" y="702" font-size="11" fill="#777">Any GND pin (3,8,13,18,23,28,33,38) can land on the bus.</text>
+
+  <!-- connector arrows Pico->SM1 (left) and Pico->SM2 (right) -->
+  <line x1="470" y1="590" x2="360" y2="470" stroke="#999" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <line x1="810" y1="400" x2="920" y2="440" stroke="#999" stroke-width="1.5" stroke-dasharray="4 3"/>
+
+  <!-- ===================== SM1 (LEFT) ===================== -->
+  <rect x="40" y="300" width="300" height="360" rx="10" fill="#ffffff" stroke="#333" stroke-width="2"/>
+  <text x="190" y="326" font-size="16" font-weight="bold" text-anchor="middle" fill="#111">SM1 — PLATFORM</text>
+  <text x="190" y="344" font-size="12" text-anchor="middle" fill="#777">TMC2208 (STEP/DIR/EN)</text>
+  <g font-size="12.5" fill="#111">
+    <rect x="56" y="360" width="14" height="14" fill="#d32f2f"/><text x="78" y="372">VMOT ← 24 V (drivers switch)</text>
+    <rect x="56" y="382" width="14" height="14" fill="#d32f2f"/><text x="78" y="394">+220 µF cap at VMOT → GND</text>
+    <rect x="56" y="404" width="14" height="14" fill="#ffffff" stroke="#999"/><text x="78" y="416">VIO ← Pico 3V3 (pin 36)</text>
+    <rect x="56" y="426" width="14" height="14" fill="#000000"/><text x="78" y="438">GND (logic + motor) → bus</text>
+    <rect x="56" y="448" width="14" height="14" fill="#795548"/><text x="78" y="460">EN ← GP18 (pin 24)</text>
+    <rect x="56" y="470" width="14" height="14" fill="#fbc02d"/><text x="78" y="482">STEP ← GP19 (pin 25)</text>
+    <rect x="56" y="492" width="14" height="14" fill="#f57c00"/><text x="78" y="504">DIR ← GP20 (pin 26)</text>
+  </g>
+  <rect x="56" y="516" width="268" height="40" rx="5" fill="#fff8e1" stroke="#e0c060"/>
+  <text x="66" y="533" font-size="11.5" fill="#8a6d00">MS1 / MS2: set microstep = prototype</text>
+  <text x="66" y="549" font-size="11.5" fill="#8a6d00">(else 6250-step MAIN distance changes)</text>
+  <rect x="56" y="566" width="268" height="72" rx="5" fill="#eef5ff" stroke="#9db8dd"/>
+  <text x="66" y="584" font-size="12" font-weight="bold" fill="#234">OA1 OA2 OB1 OB2 → SM1 MOTOR</text>
+  <text x="66" y="602" font-size="11.5" fill="#333">use the motor's own coil colours;</text>
+  <text x="66" y="618" font-size="11.5" fill="#333">keep A1/A2 one coil, B1/B2 the other</text>
+  <text x="66" y="634" font-size="11" fill="#777">(wrong pairing = buzz / no rotation)</text>
+
+  <!-- ===================== SM2 (RIGHT) ===================== -->
+  <rect x="940" y="250" width="300" height="410" rx="10" fill="#ffffff" stroke="#333" stroke-width="2"/>
+  <text x="1090" y="276" font-size="16" font-weight="bold" text-anchor="middle" fill="#111">SM2 — GRIPPER</text>
+  <text x="1090" y="294" font-size="12" text-anchor="middle" fill="#777">TMC2209 (UART + DIAG)</text>
+  <g font-size="12.5" fill="#111">
+    <rect x="956" y="310" width="14" height="14" fill="#d32f2f"/><text x="978" y="322">VMOT ← 24 V (drivers switch)</text>
+    <rect x="956" y="332" width="14" height="14" fill="#d32f2f"/><text x="978" y="344">+220 µF cap at VMOT → GND</text>
+    <rect x="956" y="354" width="14" height="14" fill="#ffffff" stroke="#999"/><text x="978" y="366">VIO ← Pico 3V3 (pin 36)</text>
+    <rect x="956" y="376" width="14" height="14" fill="#000000"/><text x="978" y="388">GND (logic + motor) → bus</text>
+    <rect x="956" y="398" width="14" height="14" fill="#fbc02d"/><text x="978" y="410">STEP ← GP2 (pin 4)</text>
+    <rect x="956" y="420" width="14" height="14" fill="#f57c00"/><text x="978" y="432">DIR ← GP3 (pin 5)</text>
+    <rect x="956" y="442" width="14" height="14" fill="#795548"/><text x="978" y="454">EN ← GP4 (pin 6)</text>
+    <rect x="956" y="464" width="14" height="14" fill="#388e3c"/><text x="978" y="476">PDN ← GP0 (1 kΩ) + GP1 UART</text>
+    <rect x="956" y="486" width="14" height="14" fill="#757575"/><text x="978" y="498">DIAG ← GP5 (pin 7)  [parked]</text>
+  </g>
+  <rect x="956" y="510" width="268" height="72" rx="5" fill="#eef5ff" stroke="#9db8dd"/>
+  <text x="966" y="528" font-size="12" font-weight="bold" fill="#234">OA2 OA1 OB1 OB2 → SM2 MOTOR</text>
+  <text x="966" y="546" font-size="11.5" fill="#333">Red · Blue · Green · Black (as today)</text>
+  <text x="966" y="562" font-size="11" fill="#777">DIAG wired but StallGuard is parked</text>
+  <text x="966" y="578" font-size="11" fill="#777">(GRIPPER_FORCE_FEEDBACK = False)</text>
+
+  <!-- ===================== SENSORS ===================== -->
+  <rect x="470" y="740" width="340" height="120" rx="10" fill="#ffffff" stroke="#333"/>
+  <text x="640" y="764" font-size="14" font-weight="bold" text-anchor="middle" fill="#111">SENSORS (2 wires each, to labelled connectors)</text>
+  <rect x="486" y="778" width="14" height="14" fill="#1976d2"/>
+  <text x="508" y="790" font-size="12.5" fill="#111">LIMIT SWITCH: leg A → GP21 (pin 27),  leg B → GND</text>
+  <text x="508" y="808" font-size="11" fill="#777">add 100 nF GP21→GND; route BLUE away from red 24 V wires</text>
+  <rect x="486" y="820" width="14" height="14" fill="#7b1fa2"/>
+  <text x="508" y="832" font-size="12.5" fill="#111">PUSH BUTTON: leg A → GP22 (pin 29),  leg B → GND</text>
+  <text x="508" y="850" font-size="11" fill="#777">internal pull-ups; both read LOW when pressed</text>
+
+  <!-- ===================== GROUND BUS ===================== -->
+  <rect x="40" y="884" width="1200" height="26" rx="4" fill="#111"/>
+  <text x="640" y="902" font-size="14" font-weight="bold" text-anchor="middle" fill="#fff">COMMON GROUND BUS (black) — 24V(−), buck −, both caps −, both drivers GND, Pico GND, switch/button/limit GND</text>
+
+  <!-- ===================== LEGEND ===================== -->
+  <rect x="40" y="924" width="1200" height="96" rx="8" fill="#ffffff" stroke="#ccc"/>
+  <text x="54" y="944" font-size="14" font-weight="bold" fill="#111">Colour legend</text>
+  <g font-size="12.5" fill="#111">
+    <rect x="54" y="954" width="16" height="16" fill="#d32f2f"/><text x="76" y="967">Red = 24 V (ONLY)</text>
+    <rect x="240" y="954" width="16" height="16" fill="#000000"/><text x="262" y="967">Black = GND</text>
+    <rect x="400" y="954" width="16" height="16" fill="#ffffff" stroke="#999"/><text x="422" y="967">White = 3V3 logic</text>
+    <rect x="580" y="954" width="16" height="16" fill="#fbc02d"/><text x="602" y="967">Yellow = STEP</text>
+    <rect x="760" y="954" width="16" height="16" fill="#f57c00"/><text x="782" y="967">Orange = DIR</text>
+    <rect x="920" y="954" width="16" height="16" fill="#795548"/><text x="942" y="967">Brown = EN</text>
+    <rect x="54" y="984" width="16" height="16" fill="#388e3c"/><text x="76" y="997">Green = SM2 UART (1 kΩ)</text>
+    <rect x="280" y="984" width="16" height="16" fill="#757575"/><text x="302" y="997">Grey = DIAG (parked)</text>
+    <rect x="470" y="984" width="16" height="16" fill="#1976d2"/><text x="492" y="997">Blue = limit switch</text>
+    <rect x="650" y="984" width="16" height="16" fill="#7b1fa2"/><text x="672" y="997">Violet = button</text>
+    <text x="820" y="997" fill="#777">Motor coil wires: motor's own colours, keep A/A · B/B pairs.</text>
+  </g>
+</svg>

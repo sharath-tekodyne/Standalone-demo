@@ -2,7 +2,7 @@
 
 This file is imported on BOTH sides of the USB serial link:
 - on the Pico (MicroPython), by everything under firmware/
-- on the desktop (CPython), by everything under desktop/
+- on the desktop (CPython), by the gui/ package
 
 Keeping the command names, phase names, and default pin/tuning values in one
 place means the two sides can never silently drift out of sync with each
@@ -21,6 +21,11 @@ so it stays MicroPython-safe.
 SM1_STEP_PIN = 19   # platform axis (TMC2208) - unchanged from the original single-motor build
 SM1_DIR_PIN = 20
 SM1_EN_PIN = 18
+# Platform motor coils were soldered reversed on this board, so CW/ACW came out
+# swapped. Invert the DIR pin so logical CW = physical CW again. NOTE: this
+# affects EVERY board running this firmware - set False for a board wired the
+# normal way (or fix that board by swapping one coil's two wires instead).
+SM1_INVERT_DIR = True
 
 SM2_STEP_PIN = 2   # gripper axis (TMC2209) - wired via a 6-pin JST
 SM2_DIR_PIN = 3
@@ -29,6 +34,11 @@ SM2_DIAG_PIN = 5   # StallGuard output, used as the force-feedback grip sensor
 SM2_UART_ID = 0    # GP0/GP1 are UART0 pins on the RP2040 (not UART1)
 SM2_UART_TX_PIN = 0
 SM2_UART_RX_PIN = 1
+
+# Gripper motor coils were soldered reversed on this board too, so its CW/ACW
+# came out swapped. Invert the DIR pin so logical CW = physical CW again
+# (open-loop step tracking is unchanged). Set False for a normally-wired board.
+SM2_INVERT_DIR = True
 
 # SM1 HOME limit switch and the physical pause button. Both are wired between
 # their GPIO and GND and use the RP2040 internal pull-up, so they read 0 when
@@ -49,11 +59,11 @@ PAUSE_BUTTON_ACTIVE_LOW = True
 POSITION_HOME = "HOME"
 POSITION_MAIN = "MAIN"
 
-# Steps from HOME (the limit switch) out to MAIN. Measure this once with
-# firmware/calibrate_main_steps.py, then paste the printed number here and
-# re-upload protocol.py. Left at 0 the platform will not travel - the demo
-# raises a clear error until this is set.
-SM1_MAIN_STEPS = 0
+# Distance from HOME to MAIN, as a POSITIVE magnitude of steps. MAIN is always
+# reached by moving ACW (away from the switch); HOME is CW back into the switch.
+# The firmware applies that direction for you, so just put the step count you
+# measured here (no sign to worry about). Left at 0 the platform won't travel.
+SM1_MAIN_STEPS = 6250
 
 # --------------------------------------------------------------------------
 # Gripper jaw states (SM2)
@@ -128,6 +138,33 @@ HOMING_MAX_STEPS = 200000      # safety cap: give up (error) if the switch never
 HOMING_BACKOFF_STEPS = 400     # after first contact, back off this far then re-approach slowly
 
 BUTTON_DEBOUNCE_MS = 30        # a button reading must be stable this long to count
+
+# Gripper CLOSE runs as one continuous move at this step half-period (us) so the
+# motor holds a steady velocity - StallGuard4 needs that for a clean, high
+# no-load reading. Faster (smaller) = stronger StallGuard signal, to a point.
+SM2_GRIP_SPEED_US = 300
+
+# Force-feedback grip (StallGuard). CLOSE drives PAST the fully-shut position by
+# SM2_GRIP_OVERTRAVEL so the motor is FORCED to jam - on the object (early) or on
+# the jaws' own hard stop (at full). StallGuard then always trips; we classify by
+# WHERE it stopped: stalling at least SM2_GRIP_MARGIN steps short of fully-shut
+# means an object was held. (Mark CLOSED at the true fully-shut position.)
+GRIPPER_FORCE_FEEDBACK = True
+SM2_GRIP_OVERTRAVEL = 300   # steps commanded past fully-shut to guarantee a jam
+SM2_GRIP_MARGIN = 60        # stalling this far before fully-shut = a real grip
+
+# Force-feedback OPEN (the 4-jaw demo, step 8): the jaws EXPAND (open direction)
+# to grip a test tube from the inside, watching StallGuard, and stop the instant
+# they meet the tube wall. Unlike CLOSE there's no fixed cap to jam against - we
+# just search up to SM2_OPEN_GRIP_MAX steps in the open direction; a StallGuard
+# trip within that = an object was detected/held. Keep this sized to the jaws'
+# usable open travel so a "nothing there" run stops cleanly instead of grinding.
+SM2_OPEN_GRIP_MAX = 800
+
+# The physical pause/start button is only wired in at Step 7 of the rebuild.
+# Until then leave this False so its GPIO is never polled - guarantees no
+# button-triggered motion during step-by-step bring-up.
+PAUSE_BUTTON_ENABLED = False
 
 # On power-up the firmware never moves a motor by itself. When False the
 # first push-button press homes and starts the cycle; set True only if you

@@ -96,6 +96,13 @@ if state.get("sm1_enabled") or state.get("sm2_enabled"):
     state["sm1_enabled"] = False
     state["sm2_enabled"] = False
     needs_boot_save = True
+# A state.json left by an older/other firmware may hold a demo_phase this build
+# does not know (e.g. the old "MOVE_TO_B"). Drop any unknown phase so DEMO START
+# begins cleanly at HOMING instead of resuming into an undefined phase.
+_valid_phases = (protocol.PHASE_HOMING,) + tuple(protocol.NEXT_PHASE.keys())
+if state.get("demo_phase") is not None and state.get("demo_phase") not in _valid_phases:
+    state["demo_phase"] = None
+    needs_boot_save = True
 if needs_boot_save:
     store.save()
 
@@ -104,7 +111,8 @@ def persist():
     store.save(state)
 
 
-motor1 = TMC2208(step_pin=protocol.SM1_STEP_PIN, dir_pin=protocol.SM1_DIR_PIN, en_pin=protocol.SM1_EN_PIN)
+motor1 = TMC2208(step_pin=protocol.SM1_STEP_PIN, dir_pin=protocol.SM1_DIR_PIN, en_pin=protocol.SM1_EN_PIN,
+                 invert_dir=protocol.SM1_INVERT_DIR)
 motor1.disable()
 
 motor2 = TMC2209(
@@ -115,6 +123,7 @@ motor2 = TMC2209(
     uart_id=protocol.SM2_UART_ID,
     tx_pin=protocol.SM2_UART_TX_PIN,
     rx_pin=protocol.SM2_UART_RX_PIN,
+    invert_dir=protocol.SM2_INVERT_DIR,
 )
 motor2.disable()
 
@@ -202,6 +211,20 @@ def pause_demo_if_running(reason):
         debug("demo auto-paused: {}".format(reason))
 
 
+def abort_when_disabled(enabled_key):
+    """should_pause callable for manual moves.
+
+    Services serial + the button between motion chunks (so STATUS stays live
+    and ESTOP/STOP actually interrupts a manual move instead of being ignored
+    until the whole move finishes), and aborts the move if the axis gets
+    disabled (ESTOP, SMx STOP/DISABLE).
+    """
+    def _should_pause():
+        poll_inputs()
+        return not state.get(enabled_key, True)
+    return _should_pause
+
+
 def parse_int(value, label, minimum=None, maximum=None):
     try:
         parsed = int(str(value).strip())
@@ -272,7 +295,7 @@ def help_line():
         "SM1 ENABLE|DISABLE|STOP|FREEDRIVE SM1 SET SPEED|TORQUE LOW|MEDIUM|HIGH SM1 SET SPEEDUS <us>|AUTO "
         "SM1 SET MAINSTEPS <n>|CLEAR SM1 HOME SM1 JOG CW|ACW <steps> SM1 GOTO HOME|MAIN SM1 GOTO STEPS <n> SM1 MARK HOME|MAIN | "
         "SM2 ENABLE|DISABLE|STOP|FREEDRIVE SM2 SET SPEED|TORQUE LOW|MEDIUM|HIGH SM2 SET SPEEDUS <us>|AUTO "
-        "SM2 SET STALLTHRESHOLD <0-255> SM2 JOG CW|ACW <steps> SM2 OPEN SM2 CLOSE SM2 GOTO STEPS <n> "
+        "SM2 SET STALLTHRESHOLD <0-255> SM2 JOG CW|ACW <steps> SM2 OPEN SM2 OPENGRIP [steps] SM2 CLOSE SM2 SGREAD <steps> SM2 GOTO STEPS <n> "
         "SM2 MARK OPEN|CLOSED | "
         "DEMO START|PAUSE|RESUME|RESET | CAL STATUS|CLEAR"
     )
@@ -321,7 +344,8 @@ def handle_sm1(tokens):
                 n = parse_int(value, "MAINSTEPS")
                 if n == 0:
                     raise ValueError("MAINSTEPS cannot be 0 (that is HOME)")
-                state["sm1_main_steps"] = n
+                # store magnitude; MAIN's ACW direction is applied in platform_axis
+                state["sm1_main_steps"] = abs(n)
             persist()
             reply_ok("SM1 SET MAINSTEPS {}".format(value))
             return
@@ -345,8 +369,8 @@ def handle_sm1(tokens):
     if sub == "HOME":
         require_demo_idle()
         require_sm1_enabled()
-        platform.home(read_home_switch, should_pause=None)
-        reply_ok("SM1 HOME position={}".format(state["sm1_position_steps"]))
+        homed = platform.home(read_home_switch, should_pause=abort_when_disabled("sm1_enabled"))
+        reply_ok("SM1 HOME homed={} position={}".format(int(bool(homed)), state["sm1_position_steps"]))
         return
     if sub == "JOG":
         require_demo_idle()
@@ -367,11 +391,11 @@ def handle_sm1(tokens):
             if len(tokens) != 3:
                 raise ValueError("usage: SM1 GOTO STEPS <n>")
             target = parse_int(tokens[2], "STEPS")
-            platform.move_to_absolute(target, should_pause=None)
+            platform.move_to_absolute(target, should_pause=abort_when_disabled("sm1_enabled"))
             reply_ok("SM1 GOTO STEPS {} position={}".format(target, state["sm1_position_steps"]))
             return
         name = tokens[1].upper()
-        platform.move_to(name, should_pause=None)
+        platform.move_to(name, should_pause=abort_when_disabled("sm1_enabled"))
         reply_ok("SM1 GOTO {} position={}".format(name, state["sm1_position_steps"]))
         return
     if sub == "MARK":
@@ -388,7 +412,7 @@ def handle_sm1(tokens):
 
 def handle_sm2(tokens):
     if len(tokens) < 1:
-        raise ValueError("usage: SM2 <ENABLE|DISABLE|STOP|FREEDRIVE|SET|JOG|OPEN|CLOSE|GOTO|MARK> ...")
+        raise ValueError("usage: SM2 <ENABLE|DISABLE|STOP|FREEDRIVE|SET|JOG|OPEN|OPENGRIP|CLOSE|SGREAD|GOTO|MARK> ...")
     sub = tokens[0].upper()
 
     if sub == "ENABLE":
@@ -450,16 +474,34 @@ def handle_sm2(tokens):
         stalled, completed = gripper.jog(direction, steps)
         reply_ok("SM2 JOG completed={} stalled={} position={}".format(completed, int(stalled), state["sm2_position_steps"]))
         return
+    if sub == "SGREAD":
+        require_demo_idle()
+        require_sm2_enabled()
+        steps = parse_int(tokens[1], "steps", minimum=1) if len(tokens) > 1 else 200
+        sg_min, samples = gripper.sg_probe(steps)
+        trips_at = state["sm2_stallguard_threshold"] * 2
+        reply_ok("SM2 SGREAD sgmin={} trips_at={} threshold={} samples={} position={}".format(
+            sg_min, trips_at, state["sm2_stallguard_threshold"],
+            ",".join(str(s) for s in samples), state["sm2_position_steps"]))
+        return
     if sub == "OPEN":
         require_demo_idle()
         require_sm2_enabled()
-        gripper.open_gripper(should_pause=None)
+        gripper.open_gripper(should_pause=abort_when_disabled("sm2_enabled"))
         reply_ok("SM2 OPEN position={}".format(state["sm2_position_steps"]))
+        return
+    if sub == "OPENGRIP":
+        require_demo_idle()
+        require_sm2_enabled()
+        steps = parse_int(tokens[1], "steps", minimum=1) if len(tokens) > 1 else None
+        gripped = gripper.open_and_verify_grip(
+            should_pause=abort_when_disabled("sm2_enabled"), max_steps=steps)
+        reply_ok("SM2 OPENGRIP gripped={} position={}".format(int(bool(gripped)), state["sm2_position_steps"]))
         return
     if sub == "CLOSE":
         require_demo_idle()
         require_sm2_enabled()
-        gripped = gripper.close_and_verify_grip(should_pause=None)
+        gripped = gripper.close_and_verify_grip(should_pause=abort_when_disabled("sm2_enabled"))
         reply_ok("SM2 CLOSE gripped={} position={}".format(int(bool(gripped)), state["sm2_position_steps"]))
         return
     if sub == "GOTO":
@@ -468,7 +510,7 @@ def handle_sm2(tokens):
         if len(tokens) != 3 or tokens[1].upper() != "STEPS":
             raise ValueError("usage: SM2 GOTO STEPS <n>")
         target = parse_int(tokens[2], "STEPS")
-        result = gripper.goto_steps(target, should_pause=None)
+        result = gripper.goto_steps(target, should_pause=abort_when_disabled("sm2_enabled"))
         reply_ok("SM2 GOTO STEPS {} result={} position={}".format(target, result, state["sm2_position_steps"]))
         return
     if sub == "MARK":
@@ -639,6 +681,8 @@ def _on_button_press():
 
 
 def poll_button():
+    if not protocol.PAUSE_BUTTON_ENABLED:
+        return  # button not wired in until Step 7 of the rebuild
     raw = read_pause_button()
     now = time.ticks_ms()
     if raw != button_state["last_raw"]:

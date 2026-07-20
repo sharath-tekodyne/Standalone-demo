@@ -40,12 +40,16 @@ class TMC2209:
         "HIGH": (12, 24, 4),
     }
 
-    def __init__(self, step_pin, dir_pin, en_pin, diag_pin, uart_id, tx_pin, rx_pin, baudrate=115200):
+    def __init__(self, step_pin, dir_pin, en_pin, diag_pin, uart_id, tx_pin, rx_pin, baudrate=115200,
+                 invert_dir=False):
         self.uart = UART(uart_id, baudrate=baudrate, tx=Pin(tx_pin), rx=Pin(rx_pin), timeout=20)
         self.step_out = Pin(step_pin, Pin.OUT)
         self.dir_out = Pin(dir_pin, Pin.OUT)
         self.en_out = Pin(en_pin, Pin.OUT)
         self.diag_in = Pin(diag_pin, Pin.IN, Pin.PULL_DOWN)
+        # If the motor coils are wired reversed, invert_dir flips the DIR pin so
+        # logical CW/ACW still map to physical CW/ACW (position tracking unchanged).
+        self.invert_dir = bool(invert_dir)
 
         self.current_direction = self.CW
         self.speed_preset = "MEDIUM"
@@ -67,7 +71,8 @@ class TMC2209:
         if direction not in (self.ACW, self.CW):
             raise ValueError("direction must be 0 (ACW) or 1 (CW)")
         self.current_direction = int(direction)
-        self.dir_out.value(self.current_direction)
+        out = self.current_direction ^ 1 if self.invert_dir else self.current_direction
+        self.dir_out.value(out)
 
     def set_speed_preset(self, level):
         level = str(level).upper().strip()
@@ -130,17 +135,41 @@ class TMC2209:
         if not (0 <= threshold <= 255):
             raise ValueError("StallGuard threshold must be between 0 and 255.")
         self.stallguard_threshold = int(threshold)
-        self.write_register(0x00, 0x00000000)   # GCONF: internal sense resistors off, spreadCycle enabled
-        self.write_register(0x14, 0xFFFFF)       # TPWMTHRS: force spreadCycle at all speeds (required for StallGuard)
-        self.write_register(0x40, self.stallguard_threshold)  # SGTHRS
+        self.write_register(0x00, 0x00000000)   # GCONF=0: StealthChop (StallGuard4 runs in StealthChop)
+        self.write_register(0x14, 0xFFFFF)       # TCOOLTHRS (0x14): route DIAG to StallGuard at all speeds
+        self.write_register(0x40, self.stallguard_threshold)  # SGTHRS (higher = MORE sensitive on TMC2209)
 
-    def move_steps(self, direction, steps, speed_us=600, blinding_window=150):
+    def pulse(self, half_period_us):
+        half_period_us = int(half_period_us)
+        if half_period_us < 100:
+            half_period_us = 100
+        self.step_out.value(1)
+        time.sleep_us(half_period_us)
+        self.step_out.value(0)
+        time.sleep_us(half_period_us)
+
+    def read_stallguard(self):
+        """Live StallGuard load, SG_RESULT (reg 0x41), ~0..510: LOWER = MORE load.
+        DIAG trips when this drops to SGTHRS*2 or below. Only meaningful while
+        the motor is actually moving.
+        """
+        return self.read_register(0x41) & 0x03FF
+
+    def move_steps(self, direction, steps, speed_us=600, blinding_window=150, reenable=True, watch_stall=True):
         """Move up to `steps` pulses, aborting early if StallGuard trips.
 
         Returns (stalled, steps_taken). `stalled=True` with steps_taken <
         `steps` means the jaws met resistance before finishing the move -
         that is a successful grip. `stalled=False` with steps_taken ==
         `steps` means the move completed with nothing in the way.
+
+        reenable=False skips the enable() (a 25 ms sleep). Chunked callers
+        enable once up front and pass reenable=False so the motor doesn't stall
+        for 25 ms between chunks - that stall made multi-chunk moves jittery.
+
+        watch_stall=False ignores the DIAG/StallGuard pin entirely - used for
+        opening and jogging, where a "stall" is just motion noise and must not
+        abort the move. Only closing (grip detection) needs watch_stall=True.
         """
         if direction not in (0, 1):
             raise ValueError("direction must be 0 or 1")
@@ -149,7 +178,8 @@ class TMC2209:
         if speed_us < 100:
             raise ValueError("speed_us too fast, minimum is 100us")
 
-        self.enable()
+        if reenable:
+            self.enable()
         self.set_direction(direction)
 
         steps_taken = 0
@@ -160,7 +190,7 @@ class TMC2209:
         adaptive_window = max(10, min(blinding_window, int(steps * 0.25)))
 
         for _ in range(int(steps)):
-            if steps_taken > adaptive_window:
+            if watch_stall and steps_taken > adaptive_window:
                 if self.diag_in.value() == 1:
                     time.sleep_us(10)
                     if self.diag_in.value() == 1:

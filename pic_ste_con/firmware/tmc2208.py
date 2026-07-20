@@ -28,12 +28,15 @@ class TMC2208:
     CW = 1
     ACW = 0
 
-    def __init__(self, step_pin=19, dir_pin=20, en_pin=18):
+    def __init__(self, step_pin=19, dir_pin=20, en_pin=18, invert_dir=False):
         if Pin is None:
             raise RuntimeError("machine.Pin is only available on MicroPython/Pico")
         self.step_out = Pin(step_pin, Pin.OUT)
         self.dir_out = Pin(dir_pin, Pin.OUT)
         self.en_out = Pin(en_pin, Pin.OUT)
+        # If the motor coils are wired reversed, invert_dir flips the DIR pin so
+        # logical CW/ACW still map to physical CW/ACW (position tracking unchanged).
+        self.invert_dir = bool(invert_dir)
 
         self.current_direction = self.CW
         self.speed_preset = "MEDIUM"
@@ -55,7 +58,8 @@ class TMC2208:
         if direction not in (self.ACW, self.CW):
             raise ValueError("direction must be 0 (ACW) or 1 (CW)")
         self.current_direction = int(direction)
-        self.dir_out.value(self.current_direction)
+        out = self.current_direction ^ 1 if self.invert_dir else self.current_direction
+        self.dir_out.value(out)
 
     def set_cw(self):
         self.set_direction(self.CW)
