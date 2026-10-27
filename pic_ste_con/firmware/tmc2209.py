@@ -131,6 +131,25 @@ class TMC2209:
         register_value = (ihold & 0x1F) | ((irun & 0x1F) << 8) | ((iholddelay & 0x0F) << 16)
         self.write_register(0x10, register_value)
 
+    # MRES field (CHOPCONF bits 24-27) -> microsteps per full step.
+    MICROSTEP_MRES = {256: 0, 128: 1, 64: 2, 32: 3, 16: 4, 8: 5, 4: 6, 2: 7, 1: 8}
+
+    def set_microsteps(self, microsteps):
+        """Set the microstep resolution (MRES in CHOPCONF 0x6C), preserving the
+        other CHOPCONF bits. Read-modify-write, then return (old, new) register
+        values for logging. Coarser microstepping (fewer per full step) means
+        each STEP pulse turns the shaft further, so at the same pulse rate the
+        motor spins faster - which StallGuard4 needs to produce a real load
+        signal. NOTE: changing this rescales every step count (re-mark CLOSED).
+        """
+        if microsteps not in self.MICROSTEP_MRES:
+            raise ValueError("microsteps must be one of 256/128/64/32/16/8/4/2/1")
+        mres = self.MICROSTEP_MRES[microsteps]
+        chop = self.read_register(0x6C)
+        new = (chop & ~(0xF << 24)) | (mres << 24)
+        self.write_register(0x6C, new)
+        return chop, new
+
     def configure_stallguard(self, threshold):
         if not (0 <= threshold <= 255):
             raise ValueError("StallGuard threshold must be between 0 and 255.")

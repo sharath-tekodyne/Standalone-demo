@@ -45,6 +45,31 @@ class PlatformAxis:
         # axis is "calibrated" once the HOME->MAIN distance is known.
         return self._main_steps() is not None
 
+    def _clear_switch(self, switch_read, speed_us):
+        """If the switch is already actuated when homing starts, back off (ACW)
+        until it releases, plus a small margin, so the approach that follows
+        always drives IN from clear and zeros at the same repeatable point.
+
+        Without this, a switch that already reads actuated (carriage resting on
+        it, a stray reading, or power lost mid-home) makes _approach_switch
+        return TRIPPED with no motion - a false "home" that never touched the
+        switch. Raises if it never clears (stuck switch or wrong polarity).
+        """
+        if not switch_read():
+            return
+        self.motor.set_direction(self.motor.ACW)
+        steps = 0
+        while switch_read():
+            self.motor.pulse(speed_us)
+            steps += 1
+            if steps >= protocol.HOMING_MAX_STEPS:
+                raise RuntimeError(
+                    "SM1 homing failed: limit switch still reads actuated after backing off "
+                    "{} steps - check HOME_SWITCH_ACTIVE_LOW and that the switch isn't stuck".format(steps)
+                )
+        for _ in range(protocol.HOMING_BACKOFF_STEPS):   # extra margin clear of the release point
+            self.motor.pulse(speed_us)
+
     def _approach_switch(self, switch_read, speed_us, should_pause):
         """Step CW until the limit switch reports active.
 
@@ -54,11 +79,19 @@ class PlatformAxis:
         HOME_SWITCH_ACTIVE_LOW polarity).
         """
         self.motor.set_direction(self.motor.CW)
+        start_us = protocol.HOMING_START_US
+        ramp = protocol.HOMING_RAMP_STEPS
         steps = 0
         while True:
             if switch_read():
                 return "TRIPPED"
-            self.motor.pulse(speed_us)
+            # Accelerate from a slow start up to the target speed so the motor
+            # doesn't stall the instant it's asked to move at full homing speed.
+            if steps < ramp and start_us > speed_us:
+                cur_us = start_us - (start_us - speed_us) * steps // ramp
+            else:
+                cur_us = speed_us
+            self.motor.pulse(cur_us)
             steps += 1
             if steps >= protocol.HOMING_MAX_STEPS:
                 raise RuntimeError(
@@ -81,6 +114,10 @@ class PlatformAxis:
         from scratch - homing is idempotent).
         """
         self.motor.enable()
+
+        # Always start clear of the switch so the approach below genuinely drives
+        # into it (no false immediate-trip "home").
+        self._clear_switch(switch_read, protocol.HOMING_SLOW_US)
 
         if self._approach_switch(switch_read, protocol.HOMING_SPEED_US, should_pause) == "PAUSED":
             return False

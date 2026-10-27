@@ -129,6 +129,10 @@ motor2.disable()
 
 sm2_ready = True
 try:
+    old_chop, new_chop = motor2.set_microsteps(protocol.SM2_MICROSTEPS)
+    old_mres = (old_chop >> 24) & 0xF
+    print("DBG SM2 microsteps set to {} (was MRES={} chop=0x{:08X} -> 0x{:08X})".format(
+        protocol.SM2_MICROSTEPS, old_mres, old_chop, new_chop))
     motor2.set_torque_preset(state["sm2_torque"])
     motor2.configure_stallguard(state["sm2_stallguard_threshold"])
 except Exception as exc:
@@ -721,10 +725,15 @@ debug(
 print("READY {} v{}".format(BRIDGE_NAME, BRIDGE_VERSION))
 reply_ok(status_line())
 
-# Opt-in hands-off mode: home and run the instant we power on. Off by default
-# so nothing moves until a human presses the button (or the GUI starts it).
+# Hands-off mode: on every boot, start the demo FRESH so it always opens the
+# jaws (RELEASE) and homes to the limit switch (HOMING) before running - a clean,
+# repeatable startup. reset() clears only the demo progress (phase, cycle count);
+# it does NOT touch calibration (sm2_closed_steps etc.), which persists in
+# state.json across reboots. So the rig re-homes and re-opens every boot but
+# still remembers what you calibrated.
 if protocol.AUTO_START_ON_BOOT and demo.is_calibrated():
     try:
+        demo.reset()
         demo.start()
         set_sm1_enabled(True)
         set_sm2_enabled(True)
@@ -738,6 +747,11 @@ while True:
         demo.tick(poll_inputs)
     except Exception as exc:
         demo.pause()
+        # De-energize both drivers on an unexpected fault (burnout safety) - the
+        # operator re-enables on Resume/Start. Normal grip-holding is unaffected;
+        # this only fires on an exception in the demo loop.
+        set_sm1_enabled(False)
+        set_sm2_enabled(False)
         state["needs_attention"] = True
         persist()
         runtime["errors"] += 1

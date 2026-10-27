@@ -51,6 +51,16 @@ class GripperAxis:
         speed = self.state.get("sm2_speed", protocol.DEFAULT_SPEED)
         return self.motor.SPEED_PRESETS_US[speed]
 
+    def _grip_speed_us(self):
+        """Step speed for the force-feedback close / open-to-stop. Honours a
+        manual SM2 SET SPEEDUS override (so grip speed can be tuned live from the
+        GUI while finding StallGuard settings); otherwise the fixed grip speed.
+        The demo clears the override on start, so a running demo always uses the
+        deterministic protocol.SM2_GRIP_SPEED_US.
+        """
+        override = self.state.get("sm2_speed_us_override")
+        return override if override is not None else protocol.SM2_GRIP_SPEED_US
+
     def _move_toward(self, target, should_pause, chunk=None, watch_stall=True):
         """Move toward an absolute step target in chunks.
 
@@ -102,6 +112,59 @@ class GripperAxis:
         self.persist()
         return True
 
+    def set_torque(self, level):
+        """Persist and apply an SM2 current/torque preset (LOW/MEDIUM/HIGH).
+        Lower current makes StallGuard more responsive to load. UART errors are
+        logged, not raised, so a flaky link can't stop the demo from starting.
+        """
+        self.state["sm2_torque"] = level
+        try:
+            self.motor.set_torque_preset(level)
+        except Exception as exc:
+            self.log("SM2 set_torque failed (UART?): {}: {}".format(
+                type(exc).__name__, exc))
+        self.persist()
+
+    def set_stallguard_threshold(self, threshold):
+        """Persist and apply a StallGuard threshold (0-255; higher = trips
+        earlier / more sensitive). UART errors are logged, not raised, so a
+        flaky link can't stop the demo from starting - the grip just keeps the
+        previously configured sensitivity.
+        """
+        self.state["sm2_stallguard_threshold"] = int(threshold)
+        try:
+            self.motor.configure_stallguard(int(threshold))
+        except Exception as exc:
+            self.log("SM2 set_stallguard_threshold failed (UART?): {}: {}".format(
+                type(exc).__name__, exc))
+        self.persist()
+
+    def open_to_stop(self, should_pause=None):
+        """Drive the jaws to the physical OPEN stop and re-zero there, IGNORING
+        the tracked position. Used on boot to guarantee a real full open (drop
+        any held object) - a plain open_gripper() is a relative move to step 0,
+        so when the tracked count already reads ~0 it moves nothing and looks
+        like "the gripper won't open".
+
+        Opens ACW watching StallGuard so it seats on the open hard stop and
+        stops there rather than grinding, capped at the known open travel plus
+        a margin. Then defines that stop as step 0 (OPEN), which also re-cancels
+        any open-loop drift in the jaw count.
+        """
+        closed = self.state.get("sm2_closed_steps")
+        travel = abs(closed) if closed else protocol.SM2_OPEN_GRIP_MAX
+        cap = int(travel) + protocol.SM2_OPEN_STOP_MARGIN
+        speed_us = self._grip_speed_us()
+        self.motor.enable()
+        stalled, completed = self.motor.move_steps(
+            self.motor.ACW, cap, speed_us=speed_us, watch_stall=True)
+        self.state["sm2_position_steps"] = 0
+        self.state["gripper_state"] = protocol.GRIPPER_OPEN
+        self.persist()
+        self.log("SM2 open_to_stop stalled={} completed={} speed_us={} torque={} -> zeroed at OPEN".format(
+            int(stalled), completed, speed_us, self.state.get("sm2_torque")))
+        return True
+
     def close_and_verify_grip(self, should_pause=None):
         """Close toward CLOSED, watching for StallGuard resistance.
 
@@ -125,8 +188,13 @@ class GripperAxis:
         remaining = full - current
         direction = self.motor.CW if remaining >= 0 else self.motor.ACW
         command = abs(remaining) + protocol.SM2_GRIP_OVERTRAVEL
+        speed_us = self._grip_speed_us()
+        # One continuous bit-banged move with per-step DIAG watching (the driver's
+        # adaptive blinding + double-read debounce live in move_steps). No UART
+        # reads inside the loop - those stutter the step train and disturb the
+        # StallGuard reading. Use SM2 SGREAD if you need the live load curve.
         stalled, completed = self.motor.move_steps(
-            direction, command, speed_us=protocol.SM2_GRIP_SPEED_US, watch_stall=True)
+            direction, command, speed_us=speed_us, watch_stall=True)
         actual = completed if direction == self.motor.CW else -completed
         self.state["sm2_position_steps"] += actual
         self.state["gripper_state"] = protocol.GRIPPER_CLOSED
@@ -134,8 +202,9 @@ class GripperAxis:
 
         gap = full - self.state["sm2_position_steps"]           # >0 = stopped short of full
         gripped = stalled and gap >= protocol.SM2_GRIP_MARGIN
-        self.log("SM2 close stalled={} pos={} gap={} gripped={}".format(
-            int(stalled), self.state["sm2_position_steps"], gap, int(gripped)))
+        self.log("SM2 close stalled={} pos={} gap={} gripped={} speed_us={} torque={} sgthrs={}".format(
+            int(stalled), self.state["sm2_position_steps"], gap, int(gripped),
+            speed_us, self.state.get("sm2_torque"), self.state.get("sm2_stallguard_threshold")))
         return True if gripped else False
 
     def open_and_verify_grip(self, should_pause=None, max_steps=None):
